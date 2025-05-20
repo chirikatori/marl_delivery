@@ -13,7 +13,7 @@ class Runner_MAPPO:
         max_train_steps: int = int(3e6),
         episode_limit: int = 100,
         batch_size: int = 32,
-        mini_batch_size: int = 8,
+        mini_batch_size: int = 1,
         rnn_hidden_dim: int = 64,
         mlp_hidden_dim: int = 64,
         lr: float = 5e-4,
@@ -157,7 +157,3 @@ class Runner_MAPPO:
         avg_r = total_r / 1
         print(f"Step {self.total_steps}, Eval reward {avg_r:.2f}")
         self.writer.add_scalar("eval_reward", avg_r, self.total_steps)
-
-# if __name__ == '__main__':
-#     runner = Runner_MAPPO_Custom('map.txt')
-#     runner.run()
