@@ -38,7 +38,10 @@ class Runner_MAPPO:
         torch.manual_seed(self.seed)
 
         # Initialize wandb
-        wandb.init(project="marl_delivery", config={**vars(args), **vars(env_args), "seed": seed})
+        wandb.init(
+            project="mappo_marl_delivery",
+            config={**vars(args), **vars(env_args), "seed": seed}
+        )
 
         # Initialize original Environment
         self.env = Environment(
