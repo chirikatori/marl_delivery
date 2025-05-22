@@ -1,6 +1,6 @@
 class Env_Args:
     def __init__(self):
-        self.map_file = "map1.txt"
+        self.map_file = "map.txt"
         self.n_robots = 5
         self.n_packages = 20
         self.episode_limit = 100

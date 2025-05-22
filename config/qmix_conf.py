@@ -5,7 +5,7 @@ class QMIX_Args:
         self.obs_dim = None
         self.state_dim = None
         
-        self.max_train_steps = 1e6
+        self.max_train_steps = 3e6
         self.episode_limit = 100
         self.evaluate_freq = 5000
         self.evaluate_times = 1
