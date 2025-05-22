@@ -10,21 +10,16 @@ def orthogonal_init(layer, gain=1.0):
             nn.init.orthogonal_(param, gain=gain)
 
 class Actor_RNN(nn.Module):
-    def __init__(self,
-                 actor_input_dim: int,
-                 rnn_hidden_dim: int,
-                 action_dim: int,
-                 use_relu: bool = True,
-                 use_orthogonal_init: bool = False):
+    def __init__(self, args, actor_input_dim):
         super(Actor_RNN, self).__init__()
         self.rnn_hidden = None
 
-        self.fc1 = nn.Linear(actor_input_dim, rnn_hidden_dim)
-        self.rnn = nn.GRUCell(rnn_hidden_dim, rnn_hidden_dim)
-        self.fc2 = nn.Linear(rnn_hidden_dim, action_dim)
-        self.activate_func = [nn.Tanh(), nn.ReLU()][int(use_relu)]
+        self.fc1 = nn.Linear(actor_input_dim, args.rnn_hidden_dim)
+        self.rnn = nn.GRUCell(args.rnn_hidden_dim, args.rnn_hidden_dim)
+        self.fc2 = nn.Linear(args.rnn_hidden_dim, args.action_dim)
+        self.activate_func = [nn.Tanh(), nn.ReLU()][args.use_relu]
 
-        if use_orthogonal_init:
+        if args.use_orthogonal_init:
             print("------use_orthogonal_init------")
             orthogonal_init(self.fc1)
             orthogonal_init(self.rnn)
@@ -38,19 +33,14 @@ class Actor_RNN(nn.Module):
 
 
 class Actor_MLP(nn.Module):
-    def __init__(self,
-                 actor_input_dim: int,
-                 mlp_hidden_dim: int,
-                 action_dim: int,
-                 use_relu: bool = True,
-                 use_orthogonal_init: bool = False):
+    def __init__(self, args, actor_input_dim):
         super(Actor_MLP, self).__init__()
-        self.fc1 = nn.Linear(actor_input_dim, mlp_hidden_dim)
-        self.fc2 = nn.Linear(mlp_hidden_dim, mlp_hidden_dim)
-        self.fc3 = nn.Linear(mlp_hidden_dim, action_dim)
-        self.activate_func = [nn.Tanh(), nn.ReLU()][int(use_relu)]
+        self.fc1 = nn.Linear(actor_input_dim, args.mlp_hidden_dim)
+        self.fc2 = nn.Linear(args.mlp_hidden_dim, args.mlp_hidden_dim)
+        self.fc3 = nn.Linear(args.mlp_hidden_dim, args.action_dim)
+        self.activate_func = [nn.Tanh(), nn.ReLU()][args.use_relu]
 
-        if use_orthogonal_init:
+        if args.use_orthogonal_init:
             print("------use_orthogonal_init------")
             orthogonal_init(self.fc1)
             orthogonal_init(self.fc2)

@@ -40,6 +40,7 @@ class Env(gym.Env):
         moves = self.le1.inverse_transform(action.reshape(-1, 2).T[0])
         pkgs = self.le2.inverse_transform(action.reshape(-1, 2).T[1])
         action = list(zip(moves, pkgs))
+        print(len(action))
         s, r, done, infos = self.env.step(action)
         new_r = reward_shaping(r, self.env, self.prev_state, action)
         self.prev_state = s

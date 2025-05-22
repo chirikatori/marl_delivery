@@ -1,5 +1,5 @@
 from .env_wrapper import Env
-from .mappo import Runner_MAPPO
+from .mappo_runner import Runner_MAPPO
 
 
 __all__ = [

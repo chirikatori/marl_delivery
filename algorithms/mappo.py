@@ -7,182 +7,192 @@ from torch.utils.data.sampler import BatchSampler, SequentialSampler
 
 
 class MAPPO:
-    def __init__(
-        self,
-        N: int,
-        action_dim: int,
-        obs_dim: int,
-        state_dim: int,
-        episode_limit: int,
-        rnn_hidden_dim: int,
-        mlp_hidden_dim: int,
-        batch_size: int,
-        mini_batch_size: int,
-        max_train_steps: int,
-        lr: float,
-        gamma: float,
-        lamda: float,
-        epsilon: float,
-        K_epochs: int,
-        entropy_coef: float,
-        set_adam_eps: bool = False,
-        use_grad_clip: bool = False,
-        use_lr_decay: bool = False,
-        use_adv_norm: bool = False,
-        use_rnn: bool = True,
-        add_agent_id: bool = False,
-        use_value_clip: bool = False
-    ):
-        # Device
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"[MAPPO] Using device: {self.device}")
+    def __init__(self, args):
+        self.N = args.N
+        self.action_dim = args.action_dim
+        self.obs_dim = args.obs_dim
+        self.state_dim = args.state_dim
+        self.episode_limit = args.episode_limit
+        self.rnn_hidden_dim = args.rnn_hidden_dim
 
-        # config
-        self.N = N
-        self.action_dim = action_dim
-        self.obs_dim = obs_dim
-        self.state_dim = state_dim
-        self.episode_limit = episode_limit
-        self.rnn_hidden_dim = rnn_hidden_dim
-        self.batch_size = batch_size
-        self.mini_batch_size = mini_batch_size
-        self.max_train_steps = max_train_steps
-        self.lr = lr
-        self.gamma = gamma
-        self.lamda = lamda
-        self.epsilon = epsilon
-        self.K_epochs = K_epochs
-        self.entropy_coef = entropy_coef
-        self.set_adam_eps = set_adam_eps
-        self.use_grad_clip = use_grad_clip
-        self.use_lr_decay = use_lr_decay
-        self.use_adv_norm = use_adv_norm
-        self.use_rnn = use_rnn
-        self.add_agent_id = add_agent_id
-        self.use_value_clip = use_value_clip
+        self.batch_size = args.batch_size
+        self.mini_batch_size = args.mini_batch_size
+        self.max_train_steps = args.max_train_steps
+        self.lr = args.lr
+        self.gamma = args.gamma
+        self.lamb = args.lamb
+        self.epsilon = args.epsilon
+        self.K_epochs = args.K_epochs
+        self.entropy_coef = args.entropy_coef
+        self.set_adam_eps = args.set_adam_eps
+        self.use_grad_clip = args.use_grad_clip
+        self.use_lr_decay = args.use_lr_decay
+        self.use_adv_norm = args.use_adv_norm
+        self.use_rnn = args.use_rnn
+        self.add_agent_id = args.add_agent_id
+        self.use_value_clip = args.use_value_clip
 
-        # input dims
-        self.actor_input_dim = obs_dim + (N if add_agent_id else 0)
-        self.critic_input_dim = state_dim + (N if add_agent_id else 0)
+        # get the input dimension of actor and critic
+        self.actor_input_dim = args.obs_dim
+        self.critic_input_dim = args.state_dim
+        if self.add_agent_id:
+            print("------add agent id------")
+            self.actor_input_dim += args.N
+            self.critic_input_dim += args.N
 
-        # networks
-        if use_rnn:
-            self.actor = Actor_RNN(self.actor_input_dim, rnn_hidden_dim, action_dim, use_relu=use_adv_norm, use_orthogonal_init=set_adam_eps)
-            self.critic = Critic_RNN(self.critic_input_dim, rnn_hidden_dim, use_relu=use_adv_norm, use_orthogonal_init=set_adam_eps)
+        if self.use_rnn:
+            print("------use rnn------")
+            self.actor = Actor_RNN(args, self.actor_input_dim)
+            self.critic = Critic_RNN(args, self.critic_input_dim)
         else:
-            self.actor = Actor_MLP(self.actor_input_dim, mlp_hidden_dim, action_dim, use_relu=use_adv_norm, use_orthogonal_init=set_adam_eps)
-            self.critic = Critic_MLP(self.critic_input_dim, mlp_hidden_dim, use_relu=use_adv_norm, use_orthogonal_init=set_adam_eps)
+            self.actor = Actor_MLP(args, self.actor_input_dim)
+            self.critic = Critic_MLP(args, self.critic_input_dim)
 
-        # to device
-        self.actor.to(self.device)
-        self.critic.to(self.device)
-
-        # optimizer
         self.ac_parameters = list(self.actor.parameters()) + list(self.critic.parameters())
-        self.ac_optimizer = torch.optim.Adam(self.ac_parameters, lr=lr, eps=1e-5 if set_adam_eps else 1e-8)
+        if self.set_adam_eps:
+            print("------set adam eps------")
+            self.ac_optimizer = torch.optim.Adam(self.ac_parameters, lr=self.lr, eps=1e-5)
+        else:
+            self.ac_optimizer = torch.optim.Adam(self.ac_parameters, lr=self.lr)
 
     def choose_action(self, obs_n, evaluate):
         with torch.no_grad():
-            obs_n = torch.tensor(obs_n, dtype=torch.float32, device=self.device)
-            actor_inputs = [obs_n]
+            actor_inputs = []
+            obs_n = torch.tensor(obs_n, dtype=torch.float32)  # obs_n.shape=(N，obs_dim)
+            actor_inputs.append(obs_n)
             if self.add_agent_id:
-                actor_inputs.append(torch.eye(self.N, device=self.device))
-            inp = torch.cat(actor_inputs, dim=-1)
-            prob = self.actor(inp)
-            if evaluate:
-                a = prob.argmax(dim=-1)
-                return a.cpu().numpy(), None
-            dist = Categorical(prob)
-            a = dist.sample()
-            return a.cpu().numpy(), dist.log_prob(a).cpu().numpy()
+                """
+                    Add an one-hot vector to represent the agent_id
+                    For example, if N=3
+                    [obs of agent_1]+[1,0,0]
+                    [obs of agent_2]+[0,1,0]
+                    [obs of agent_3]+[0,0,1]
+                    So, we need to concatenate a N*N unit matrix(torch.eye(N))
+                """
+                actor_inputs.append(torch.eye(self.N))
+
+            actor_inputs = torch.cat([x for x in actor_inputs], dim=-1)  # actor_input.shape=(N, actor_input_dim)
+            prob = self.actor(actor_inputs)  # prob.shape=(N,action_dim)
+            if evaluate:  # When evaluating the policy, we select the action with the highest probability
+                a_n = prob.argmax(dim=-1)
+                return a_n.numpy(), None
+            else:
+                dist = Categorical(probs=prob)
+                a_n = dist.sample()
+                a_logprob_n = dist.log_prob(a_n)
+                return a_n.numpy(), a_logprob_n.numpy()
 
     def get_value(self, s):
         with torch.no_grad():
-            s = torch.tensor(s, dtype=torch.float32, device=self.device).unsqueeze(0).repeat(self.N,1)
-            inputs = [s]
-            if self.add_agent_id:
-                inputs.append(torch.eye(self.N, device=self.device))
-            inp = torch.cat(inputs, dim=-1)
-            v = self.critic(inp)
-            return v.cpu().numpy().flatten()
+            critic_inputs = []
+            # Because each agent has the same global state, we need to repeat the global state 'N' times.
+            s = torch.tensor(s, dtype=torch.float32).unsqueeze(0).repeat(self.N, 1)  # (state_dim,)-->(N,state_dim)
+            critic_inputs.append(s)
+            if self.add_agent_id:  # Add an one-hot vector to represent the agent_id
+                critic_inputs.append(torch.eye(self.N))
+            critic_inputs = torch.cat([x for x in critic_inputs], dim=-1)  # critic_input.shape=(N, critic_input_dim)
+            v_n = self.critic(critic_inputs)  # v_n.shape(N,1)
+            return v_n.numpy().flatten()
 
     def train(self, replay_buffer, total_steps):
-        # fetch batch and move to device
-        batch = replay_buffer.get_training_data()
-        for k in batch:
-            batch[k] = batch[k].to(self.device)
+        batch = replay_buffer.get_training_data()  # get training data
 
-        # compute GAE and targets
-        adv_list, gae = [], 0
-        with torch.no_grad():
-            deltas = batch['r_n'] + self.gamma*batch['v_n'][:,1:]* (1-batch['done_n']) - batch['v_n'][:,:-1]
+        # Calculate the advantage using GAE
+        adv = []
+        gae = 0
+        with torch.no_grad():  # adv and td_target have no gradient
+            deltas = batch['r_n'] + self.gamma * batch['v_n'][:, 1:] * (1 - batch['done_n']) - batch['v_n'][:, :-1]  # deltas.shape=(batch_size,episode_limit,N)
             for t in reversed(range(self.episode_limit)):
-                gae = deltas[:,t] + self.gamma*self.lamda*(1-batch['done_n'][:,t])*gae
-                adv_list.insert(0, gae)
-            adv = torch.stack(adv_list, dim=1)
-            v_target = adv + batch['v_n'][:,:-1]
-            if self.use_adv_norm:
-                adv = ((adv - adv.mean())/(adv.std()+1e-5)).clamp(-10,10)
+                gae = deltas[:, t] + self.gamma * self.lamb * gae
+                adv.insert(0, gae)
+            adv = torch.stack(adv, dim=1)  # adv.shape(batch_size,episode_limit,N)
+            v_target = adv + batch['v_n'][:, :-1]  # v_target.shape(batch_size,episode_limit,N)
+            if self.use_adv_norm:  # Trick 1: advantage normalization
+                adv = ((adv - adv.mean()) / (adv.std() + 1e-5))
 
-        actor_inp, critic_inp = self.get_inputs(batch)
-        # PPO updates
+        """
+            Get actor_inputs and critic_inputs
+            actor_inputs.shape=(batch_size, max_episode_len, N, actor_input_dim)
+            critic_inputs.shape=(batch_size, max_episode_len, N, critic_input_dim)
+        """
+        actor_inputs, critic_inputs = self.get_inputs(batch)
+
+        # Optimize policy for K epochs:
         for _ in range(self.K_epochs):
-            for idx in BatchSampler(SequentialSampler(range(self.batch_size)), self.mini_batch_size, False):
-                # forward
+            for index in BatchSampler(SequentialSampler(range(self.batch_size)), self.mini_batch_size, False):
+                """
+                    get probs_now and values_now
+                    probs_now.shape=(mini_batch_size, episode_limit, N, action_dim)
+                    values_now.shape=(mini_batch_size, episode_limit, N)
+                """
                 if self.use_rnn:
-                    self.actor.rnn_hidden = None; self.critic.rnn_hidden = None
-                    probs_seq, vals_seq = [], []
+                    # If use RNN, we need to reset the rnn_hidden of the actor and critic.
+                    self.actor.rnn_hidden = None
+                    self.critic.rnn_hidden = None
+                    probs_now, values_now = [], []
                     for t in range(self.episode_limit):
-                        p = self.actor(actor_inp[idx,t].reshape(-1,self.actor_input_dim))
-                        probs_seq.append(p.reshape(-1,self.N,self.action_dim))
-                        v = self.critic(critic_inp[idx,t].reshape(-1,self.critic_input_dim))
-                        vals_seq.append(v.reshape(-1,self.N))
-                    probs_now = torch.stack(probs_seq, dim=1)
-                    vals_now = torch.stack(vals_seq, dim=1)
+                        prob = self.actor(actor_inputs[index, t].reshape(self.mini_batch_size * self.N, -1)) # prob.shape=(mini_batch_size*N, action_dim)
+                        probs_now.append(prob.reshape(self.mini_batch_size, self.N, -1))  # prob.shape=(mini_batch_size,N,action_dim）
+                        v = self.critic(critic_inputs[index, t].reshape(self.mini_batch_size * self.N, -1))  # v.shape=(mini_batch_size*N,1)
+                        values_now.append(v.reshape(self.mini_batch_size, self.N))  # v.shape=(mini_batch_size,N)
+                    # Stack them according to the time (dim=1)
+                    probs_now = torch.stack(probs_now, dim=1)
+                    values_now = torch.stack(values_now, dim=1)
                 else:
-                    probs_now = self.actor(actor_inp[idx])
-                    vals_now = self.critic(critic_inp[idx]).squeeze(-1)
+                    probs_now = self.actor(actor_inputs[index])
+                    values_now = self.critic(critic_inputs[index]).squeeze(-1)
 
-                dist = Categorical(probs_now)
-                ent = dist.entropy().mean()
-                logp_now = dist.log_prob(batch['a_n'][idx])
-                ratios = torch.exp(logp_now - batch['a_logprob_n'][idx].detach())
-                s1 = ratios * adv[idx]; s2 = torch.clamp(ratios,1-self.epsilon,1+self.epsilon)*adv[idx]
-                loss_actor = -torch.min(s1,s2).mean() - self.entropy_coef*ent
+                dist_now = Categorical(probs_now)
+                dist_entropy = dist_now.entropy()  # dist_entropy.shape=(mini_batch_size, episode_limit, N)
+                # batch['a_n'][index].shape=(mini_batch_size, episode_limit, N)
+                a_logprob_n_now = dist_now.log_prob(batch['a_n'][index])  # a_logprob_n_now.shape=(mini_batch_size, episode_limit, N)
+                # a/b=exp(log(a)-log(b))
+                ratios = torch.exp(a_logprob_n_now - batch['a_logprob_n'][index].detach())  # ratios.shape=(mini_batch_size, episode_limit, N)
+                surr1 = ratios * adv[index]
+                surr2 = torch.clamp(ratios, 1 - self.epsilon, 1 + self.epsilon) * adv[index]
+                actor_loss = -torch.min(surr1, surr2) - self.entropy_coef * dist_entropy
+
                 if self.use_value_clip:
-                    v_old = batch['v_n'][idx,:,:-1].detach()
-                    v_clip = torch.clamp(vals_now - v_old, -self.epsilon, self.epsilon)+v_old
-                    loss_critic = torch.max((v_clip-v_target[idx])**2,(vals_now-v_target[idx])**2).mean()
+                    values_old = batch["v_n"][index, :-1].detach()
+                    values_error_clip = torch.clamp(values_now - values_old, -self.epsilon, self.epsilon) + values_old - v_target[index]
+                    values_error_original = values_now - v_target[index]
+                    critic_loss = torch.max(values_error_clip ** 2, values_error_original ** 2)
                 else:
-                    loss_critic = ((vals_now-v_target[idx])**2).mean()
+                    critic_loss = (values_now - v_target[index]) ** 2
 
                 self.ac_optimizer.zero_grad()
-                (loss_actor+loss_critic).backward()
-                if self.use_grad_clip:
-                    torch.nn.utils.clip_grad_norm_(self.ac_parameters,10)
+                ac_loss = actor_loss.mean() + critic_loss.mean()
+                ac_loss.backward()
+                if self.use_grad_clip:  # Trick 7: Gradient clip
+                    torch.nn.utils.clip_grad_norm_(self.ac_parameters, 10.0)
                 self.ac_optimizer.step()
 
-        # lr decay
         if self.use_lr_decay:
             self.lr_decay(total_steps)
 
-    def get_inputs(self, batch):
-        obs = batch['obs_n']; s = batch['s']
-        act_in = [obs]
-        crit_in = [s.unsqueeze(2).repeat(1,1,self.N,1)]
-        if self.add_agent_id:
-            aid = torch.eye(self.N, device=self.device).unsqueeze(0).unsqueeze(0)
-            aid = aid.repeat(self.batch_size,self.episode_limit,1,1)
-            act_in.append(aid); crit_in.append(aid)
-        return torch.cat(act_in,-1), torch.cat(crit_in,-1)
+    def lr_decay(self, total_steps):  # Trick 6: learning rate Decay
+        lr_now = self.lr * (1 - total_steps / self.max_train_steps)
+        for p in self.ac_optimizer.param_groups:
+            p['lr'] = lr_now
 
-    def lr_decay(self, total_steps):
-        lr_now = self.lr*(1-total_steps/self.max_train_steps)
-        for pg in self.ac_optimizer.param_groups: pg['lr']=lr_now
+    def get_inputs(self, batch):
+        actor_inputs, critic_inputs = [], []
+        actor_inputs.append(batch['obs_n'])
+        critic_inputs.append(batch['s'].unsqueeze(2).repeat(1, 1, self.N, 1))
+        if self.add_agent_id:
+            # agent_id_one_hot.shape=(mini_batch_size, max_episode_len, N, N)
+            agent_id_one_hot = torch.eye(self.N).unsqueeze(0).unsqueeze(0).repeat(self.batch_size, self.episode_limit, 1, 1)
+            actor_inputs.append(agent_id_one_hot)
+            critic_inputs.append(agent_id_one_hot)
+
+        actor_inputs = torch.cat([x for x in actor_inputs], dim=-1)  # actor_inputs.shape=(batch_size, episode_limit, N, actor_input_dim)
+        critic_inputs = torch.cat([x for x in critic_inputs], dim=-1)  # critic_inputs.shape=(batch_size, episode_limit, N, critic_input_dim)
+        return actor_inputs, critic_inputs
 
     def save_model(self, env_name, number, seed, total_steps):
-        torch.save(self.actor.state_dict(), f"./model/MAPPO_actor_env_{env_name}_number_{number}_seed_{seed}_step_{total_steps//1000}k.pth")
+        torch.save(self.actor.state_dict(), "./models/MAPPO_actor_env_{}_number_{}_seed_{}_step_{}k.pth".format(env_name, number, seed, int(total_steps / 1000)))
 
     def load_model(self, env_name, number, seed, step):
-        self.actor.load_state_dict(torch.load(f"./model/MAPPO_actor_env_{env_name}_number_{number}_seed_{seed}_step_{step}k.pth", map_location=self.device))
+        self.actor.load_state_dict(torch.load("./models/MAPPO_actor_env_{}_number_{}_seed_{}_step_{}k.pth".format(env_name, number, seed, step)))
+
 
