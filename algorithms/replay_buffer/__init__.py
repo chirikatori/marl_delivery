@@ -1,8 +1,8 @@
-from .base_replay_buffer import BaseReplayBuffer
 from .mappo import ReplayBufferPPO
+from .qmix import ReplayBufferQMix
 
 
 __all__ = [
-    "BaseReplayBuffer",
-    "ReplayBufferPPO"
+    "ReplayBufferPPO",
+    "ReplayBufferQMix"
 ]

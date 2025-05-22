@@ -26,3 +26,7 @@ The seeds are given at later time.
 - [x]: Add BFS agents
 - [x]: Add test scripts
 - [x]: Add RL agents
+
+
+# Acknowledgment
+https://github.com/Lizhi-sjtu/MARL-code-pytorch

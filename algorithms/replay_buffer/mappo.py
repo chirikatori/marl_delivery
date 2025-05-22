@@ -1,8 +1,7 @@
 import numpy as np
 import torch
-from .base_replay_buffer import BaseReplayBuffer
 
-class ReplayBufferPPO(BaseReplayBuffer):
+class ReplayBufferPPO:
     def __init__(self, args):
         self.N = args.N
         self.obs_dim = args.obs_dim

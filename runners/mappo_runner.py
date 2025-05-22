@@ -5,10 +5,9 @@ import wandb
 from algorithms.utils import Normalization, RewardScaling
 from algorithms.replay_buffer import ReplayBufferPPO as ReplayBuffer
 from algorithms import MAPPO
-from env import Environment  # use original Environment class
+from env import Environment
 from config import MAPPO_Args, Env_Args
 
-# helper to flatten state dict into vector
 def convert_state(state, max_package_slots=100):
     robots = np.array(state['robots'], dtype=np.float32).flatten()
     packages = np.array(state['packages'], dtype=np.float32).flatten()
@@ -18,9 +17,9 @@ def convert_state(state, max_package_slots=100):
         packages = packages[:max_package_slots]
     return np.concatenate([robots, packages])
 
-# map discrete indices back to actions
 MOVES = ['S', 'L', 'R', 'U', 'D']
 PKG_ACTIONS = ['0', '1', '2']
+# helper to flatten state dict into vector
 
 def decode_actions(flat_actions, n_agents):
     moves_idx, pkgs_idx = [], []
@@ -153,4 +152,4 @@ class Runner_MAPPO:
         # Log evaluation reward
         wandb.log({"eval_reward": avg}, step=self.total_steps)
         # save only actor parameters
-        torch.save(self.agent_n.actor.state_dict(), f"model_seed{self.seed}.pt")
+        torch.save(self.agent_n.actor.state_dict(), f"models/mappo/model_seed{self.seed}_map:{str(self.env_args.map_file)}.pt")

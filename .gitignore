@@ -176,3 +176,4 @@ cython_debug/
 runs
 wandb
 model_seed2025.pt
+models

@@ -1,12 +1,10 @@
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 
 from .utils import QMIX_Net, VDN_Net, Q_network_RNN, Q_network_MLP
 
 
-class QMIX_SMAC(object):
+class QMIX(object):
     def __init__(self, args):
         self.N = args.N
         self.action_dim = args.action_dim
